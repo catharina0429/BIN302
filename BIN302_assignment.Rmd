@@ -6,15 +6,11 @@ date: "Last compiled date is `r format(Sys.Date())`"
 output: 
   html_document:
     code_folding: hide
-    fig_height: 6
+    fig_height: 5
     fig_width: 10
     toc: yes
     toc_depth: 4
     toc_float: yes
-  # pdf_document:
-  #   number_sections: true
-  #   fig_width: 7
-  #   fig_height: 6
 editor_options: 
   chunk_output_type: console
 ---
@@ -22,36 +18,40 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 Sys.setlocale("LC_TIME", "C")
-options(scipen = 100000)
+options(scipen = 10000)
+setwd("C:/Users/catha/Desktop/Jisoo/NMBU_DataScience/2021_Autumn/BIN302/Assignment/Finalpaper")
 ```
 
-```{r libraries, include=FALSE}
+```{r libraries, include=FALSE, warning=FALSE}
 suppressMessages({
   library(readr)      # read file
   library(tidyverse)  # data manipulation
-  library(data.table) # data handling
   library(ggplot2);theme_set(theme_minimal())
   library(ggpubr)     # multiple plots in one figure
+  library(EMSC)       # apply Savitzky-Golay filter
+  library(pls)        # Partial Least Square Regression
+  library(epiR)       # calculate CCC
 })
 ```
 
-## Introduction
-* Raman spectroscopy
-* NIR
-* Omega3 and Omega6, Pigment
+## Introduction  
 
-## Problem statement 
-NIR, RAMAN data sets have too many variables so it is good data to test a PCA, PCR, and PLSR
+During Fall 2021, we learned the High Throughput phenotype for smart farming that covered multiple areas-Image Analysis, Vibrational Spectroscopy, Machine and Deep Learning, Sensors in Time Series, and benchmark and validation. 
 
-* PCA -> could be found the elbow point? If so, how many variables can be reduced
-* PCR, PLSR -> comparison between RAMAN VS NIR
-* could be segment?
+Combine with the Vibrational Spectroscopy and Multivariate analysis enables a wide range of analyses in multidisciplinary research. What we select among the several topics is vibrational spectroscopy with near-infrared(NIR) and RAMAN using Omega3 data to assess and compare its prediction applying machine learning methods. 
 
-- Many Possibilities for PLSR models comparing NIR and Raman for a phenotype
-- Possibilities to compare Machine learning methods of prediction with PLSR for either 
-NIR or RAMAN
+We assume that smoothing spectra performs well to predict the omega3 fatty acid. The main question is whether this assumption can apply to the data set. Thus, the purpose of this paper is to compare the prediction value and accuracy of omega3 fatty acids among NIR, RAMAN, smoothing methods by using Principal Components Analysis(PCA) and Principal Components Regression(PCR), Partial Least Square Regression(PLSR). The assessments are based on the Root Mean Squared Error(RMSE), $R^2$, and Concordance correlation coefficient(CCC). The mathematical definition of each method is as below;
 
-the main problem of this analysis is I have no idea what is raman and nir...
+$$RMSE = \sqrt{ \frac{1}{N}\sum_{i=1}^{N} (y_{i} - \hat{y})^2} $$ 
+
+$$R^2 = 1 - \frac{\sum_{i=1}^{N} (y_{i} - \hat{y})^2}{\sum_{i=1}^{N} (y_{i} - \bar{y})^2}$$
+
+$$CCC(\rho_{c}) = \frac{2 \rho \sigma_{x} \sigma_{y}}{\sigma_{x}^2 + \sigma_{y}^2 + (\mu_{x} - \mu_{y})^2} $$
+
+The data analysis process has a typical process regardless of the field. Simply speaking, it conducts data pre-processing, data modeling and completes the evaluation of the model. We follow these steps;
+First, we split the training and testing data with 60:40. As a general rule of thumb, the data split into 70:30; however, it could adjust depending on the number of data. Here, we randomly select the fish id and split it into the training and test data set with a 60:40 ratio due to the small number of the data. Applying PCR and PLS model to the training data gives us an overview of the model. We look for the number of principal components based on the lowest RMSE to explain the variance.  Each model applies to the test data set for predicting the omega3 fatty acids and compares its RMSE, $R^2$. Lastly, we will calculate Lin’s concordance correlation coefficient for consolidating the outcome.
+
+All data analysis processes and statistical methods are implemented within R and R-studio. In R, pls packages provide PCR and PLS methods. The other choice for executing PCR and PLS is using caret, tidymodels packages.
 
 ## Description of data 
 
@@ -61,31 +61,34 @@ NIR <- readr::read_csv("NIR_Assignment.csv")
 RAMAN <- readr::read_csv("Raman_Assignment.csv")
 ```
 
-This data set contains Raman, NIR and Omega 3 fatty acids composition, Omega 6 fatty acid composition and pigment of the salmon fillet in the same 200 fish.
+The given data set has comprised of three CSV files named `Omega Assistant`, `NIR Assistant`, and `RAMAN Assistant`. Each file has a 200 unique id of fish used to merge based on the purpose. Omega Assistant set contains 200 observations with four variables; unique id of the fish, the total contents of omega3 and omega6 fatty acids, pigment. It could be considered all three variables except id as the target variable in prediction. However, we would like to focus on omega3 that known as beneficial nutrition for human beings. 
 
-Each data sets description are as below;
+`RAMAN Assistant` and `NIR Assistant` contain their spectra information as a variable. Spectroscopy is widely applied in the fields of Physics or analytical chemistry to study the interaction between light and material depending on the wavelength. NIR and RAMAN are included in vibrational spectroscopy because they identify and quantify biomolecules by analyzing the spectra absorbed by a substance. Since both are the one way of vibrational spectroscopy techniques with different molecules analyses and have different wavelengths and noises, we generally need additional data processing accordingly before applying the machine learning methods. It employs the Savitzky-Golay filtering with the second derivatives to reduce the noise effect.
 
-- `Omega_Assignment`:
-  - n: Unique ID of fish
-  - Omaga 3:
-  - Omega 6:
-  - pigment:
+Most omega3 fatty acids are in a range of 17 and 20. However, we can see there are two outliers in the boxplot and index plot. It may need to take into account to delete or other treatment because it affects the prediction value. Omega3 and Omega 6 have a negative relationship holds the Pearson correlation -0.59. A salmon in the given data set has contents of high omega3 with relatively low omega6.
 
-- `NIR_Assignment`:
-  - n: Unique ID of fish
-  - 1151-2499: wavelengths
+```{r omega3_dist, message=FALSE, warning=FALSE}
 
-- `Raman_Assighment`:
-  - n: Unique ID of fish
-  - x500-x1800: Raman shift
-  
-### Exploratory Data Analysis
+ggpubr::ggarrange(
+  qplot(y = Omega3, data = Omega, 
+        xlab = "Index",
+        main = "Fig 1. Omega3 distribution"),  
+  ggpubr::ggarrange(
+  qplot(x = Omega3, y = "", data = Omega, 
+        geom="boxplot") + labs(y = ""),
+  qplot(x = Omega3, data = Omega, ylab = "Count")
+  ), ncol = 1, nrow = 2)
+
+# which(Omega$Omega3 <16.5) # index 61, 131
+knitr::kable(Omega[which(Omega$Omega3 <16.5), ],
+             caption = "Table 1. Omega3 content below 16.5")
+```
 
 ```{r omega3_omega6}
 
-Omega %>% 
+knitr::kable(Omega %>% 
   select(-n) %>% 
-  cor()
+  cor(), caption = "Table 2. Correlation table")
 
 Omega %>% 
   ggplot(aes(x = Omega3, y = Omega6)) + 
@@ -95,17 +98,752 @@ Omega %>%
   scale_x_continuous(limits = c(15, 21),
                      breaks = c(seq(15, 21, by = 1))) +
   scale_y_continuous(limits = c(10, 15)) + 
-  labs(title = "correlation between Omega3 and Omega 6",
+  labs(title = "Fig 2. Correlation between Omega3 and Omega 6",
        subtitle = paste0("corr: ", round(-0.59416308, 4)))
 
 ```
 
 
-## Methods/Models tested
+All spectra in the given NIR Assignment data set have `r dim(NIR)[2] - 1` variables, from 1150 to 2499. On the other hand, all spectra in the given RAMAN Assignment have `r dim(RAMAN)[2] - 1`, from 500 to 1800.  The second derivative of the Savizky-Golay filter flattens a spike of data, so most of the data points are located closely at zero. We expect that it has a similar normalization effect.
 
-## Results – comparisons or benchmark 
+```{r NIR_spectra}
+Nir <- as.matrix(NIR[, -1])
+SGNir <- EMSC::SavitzkyGolay((NIR[, -1])) %>% as.matrix()
+old.par  <- par(mfrow = c(2,1), mar = c(4,4,1,1))
+matplot(colnames(Nir), t(Nir), type = 'l',
+        ylab = 'Relative Intensity', 
+        xlab = "Raw NIR Spectra",
+        main = 'Fig 3. Near-Infrared Spectra')
+matplot(colnames(SGNir), t(SGNir), type = 'l',
+        ylab = 'Relative Intensity', 
+        xlab = "Savitzky-Golay smoothed 2nd derivative",
+        main = '')
+```
 
-## Conclusion
-Implications or recommendations 
+
+```{r RAMAN_spectra}
+Raman <- as.matrix(RAMAN[, -1])
+colnames(Raman) <- gsub("[^0-9.-]", "", colnames(Raman))
+SGRaman <- EMSC::SavitzkyGolay(Raman) %>% as.matrix()
+old.par  <- par(mfrow = c(2,1), mar = c(4,4,1,1))
+matplot(colnames(Raman), t(Raman), type = 'l',
+        ylab = 'Relative intensity', 
+        xlab = "Raw Raman spectra",
+        main = 'Fig 4. Raman Spectra')
+matplot(colnames(SGRaman), t(SGRaman), type = 'l',
+        ylab = 'Relative intensity', 
+        xlab = "Savitzky-Golay smoothed 2nd derivative")
+par(mfrow = c(1,1))
+rm(old.par)
+```
+
+
+## Methods
+
+Spectroscopy data is high-dimensional data comprised of spectra. PCA allows reducing its high dimension to a reasonable number of new variables. Mathematically, it uses a matrix that decomposes the value into eigenvector and eigenvalue to maximize its variance and create a new composition. Thus, it enables to explain the variance of data with a small number of principal components which is the main advantage. One drawback of PCA only considers the linear combination between the independent variables, so it does not explain the relationship between the target variable.
+
+Principal component regression analysis performs by using the principal component as an explanatory variable instead of the existing variable. In addition, it is a regression analysis methodology used to solve the multicollinearity problem and the high-dimensional problem. Partial least square regression is similar to principal component regression in terms of using the principal components. It is a widely used technique in chemometrics, bioinformatics, and related fields rather than principal component regression. While principal component regression finds a linear combination for maximizing its variance within the independent variables, principal component regression finds maximum correlation with dependent variable considering the target variable. Thus, both PCR and PLSR is practical regression technique to use principal component. 
+
+## Modeling
+
+It is possible to divide the unique fish id into 60:40 and compare the predicted values by having the same id. We set the random seed for a reproducible experiment.
+
+Note that there is a gap in specific terminology between phenotype and data science. In data science, the split data are called the training set and the testing set, while in chemometrics and related fields the data are called calibration and validation sets.
+
+
+```{r data_split}
+# 1. combine the data
+Omega_Nir <- data.frame(
+  ID = Omega$n,
+  omega3 = Omega$Omega3,
+  NIR = I(Nir),
+  NIRSG = I(SGNir))
+class(Omega_Nir$NIR) <- "matrix"
+class(Omega_Nir$NIRSG) <- "matrix"
+
+# 2. Set random seed
+set.seed(1124)
+# 3. random sampling 
+idx <- rsample::initial_split(Omega_Nir, 0.6)
+# 4. split the data
+nir_tr <- rsample::training(idx)
+nir_te <- rsample::testing(idx)
+
+Omega_Raman <- data.frame(
+  ID = Omega$n,
+  omega3 = Omega$Omega3,
+  RAMAN = I(Raman),
+  RAMANSG = I(SGRaman))
+class(Omega_Raman$RAMAN) <- "matrix"
+class(Omega_Raman$RAMANSG) <- "matrix"
+
+raman_tr <- Omega_Raman[idx$in_id,]
+raman_te <- Omega_Raman[-idx$in_id,]
+
+```
+
+
+
+```{r data description}
+knitr::kable(
+  rbind(
+  # Total description
+data.frame(
+  Index = "Total",
+  Omega %>% 
+  select(Omega3) %>% 
+  summarize(across(Omega3, 
+                   list(count = ~ n(), 
+                        min = min, max = max, 
+                        mean = mean, sd = sd)))),
+# Train/Test description
+Omega %>% 
+  mutate(Index = ifelse(n %in% nir_tr$ID, 
+                      "Train", "Test")) %>% 
+  select(Index, Omega3) %>% #view()
+  group_by(Index) %>% 
+  summarise(across(Omega3, 
+                   list(count = ~ n(), 
+                        min = min, max = max, 
+                        mean = mean, sd = sd)), 
+            .groups = 'drop')
+), 
+caption = "Table 3. Descriptive Statistics of splited data")
+```
+
+
+### PCA
+In principle components analysis, we can see that the raw spectra could reduce by principal component. While the Nir spectra explain up to 85% by the second components, the Raman spectra explain only 61%. It means that the near-infrared could reduce as two principal components instead of using all. Raman spectra could select four compositions to contain over 70% of the variance. Despite performing well in each raw spectra, it doesn't work enough in Savitzky-Golay smoothed filter.
+
+
+#### NIR 
+```{r PCA_NIR}
+
+pca_NIR <- prcomp(Omega_Nir[, 3],
+                  center = TRUE, scale. = TRUE,
+                  rank. = 10)
+summary(pca_NIR)
+
+pca_NIRSG <- prcomp(Omega_Nir[, 4],
+                  center = TRUE, scale. = TRUE,
+                  rank. = 10)
+summary(pca_NIRSG)
+
+NIR_pve_var <- data.frame(
+  Idx = seq(1, length(pca_NIR$sdev), 1) %>% as.factor(),
+  NIR_sd = pca_NIR$sdev^2,
+  NIRSG_sd = pca_NIRSG$sdev^2) %>% 
+  mutate(
+    raw_pve = NIR_sd/sum(NIR_sd),
+    SG_pve = NIRSG_sd/sum(NIRSG_sd),  
+    raw_pve_cum = cumsum(raw_pve),
+    SG_pve_cum = cumsum(SG_pve)) %>% 
+  slice(1:10)
+
+```
+
+#### RAMAN 
+```{r PCA_RAMAN}
+
+pca_RAMAN <- prcomp(Omega_Raman[, 3],
+                  center = TRUE, scale. = TRUE,
+                  rank. = 10)
+summary(pca_RAMAN)
+
+pca_RAMANSG <- prcomp(Omega_Raman[, 4],
+                  center = TRUE, scale. = TRUE,
+                  rank. = 10)
+summary(pca_RAMANSG)
+
+RAMAN_pve_var <- data.frame(
+  Idx = seq(1, length(pca_RAMAN$sdev), 1) %>% as.factor(),
+  RAMAN_sd = pca_RAMAN$sdev^2,
+  RAMANSG_sd = pca_RAMANSG$sdev^2) %>% 
+  mutate(
+    raw_pve = RAMAN_sd/sum(RAMAN_sd),
+    SG_pve = RAMANSG_sd/sum(RAMANSG_sd),  
+    raw_pve_cum = cumsum(raw_pve),
+    SG_pve_cum = cumsum(SG_pve)) %>% 
+  slice(1:10)
+
+```
+
+#### summary 
+```{r PCA_plots}
+ggpubr::ggarrange(
+  ggpubr::ggarrange(
+  NIR_pve_var %>% 
+    ggplot() +
+    geom_col(aes(x = Idx, y = raw_pve)) +
+    geom_point(aes(x = Idx, y = raw_pve_cum, group = 1),
+               size = 2, color = "blue") +
+    geom_line(aes(x = Idx, y = raw_pve_cum, group = 1), 
+              color = "blue", linetype = "dashed") +
+    scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                       labels = scales::percent) +
+    labs(y = "Variance Explained (%)",
+         x = "Principal Component",
+         title = "Fig 5-1. Principal Component Analysis - NIR",
+         subtitle = "Raw spectra"),
+  NIR_pve_var %>% 
+    ggplot() +
+    geom_col(aes(x = Idx, y = SG_pve)) +
+    geom_point(aes(x = Idx, y = SG_pve_cum, group = 1),
+               size = 2, color = "blue") +
+    geom_line(aes(x = Idx, y = SG_pve_cum, group = 1), 
+              color = "blue", linetype = "dashed") +
+    scale_y_continuous(limits = c(0, 1),
+      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                       labels = scales::percent) +
+    labs(y = "Variance Explained (%)",
+         x = "Principal Components",
+         title = "",
+         subtitle = "Savitzky-Golay smoothed 2nd derivative"))
+, 
+  ggpubr::ggarrange(
+  RAMAN_pve_var %>% 
+    ggplot() +
+    geom_col(aes(x = Idx, y = raw_pve)) +
+    geom_point(aes(x = Idx, y = raw_pve_cum, group = 1),
+               size = 2, color = "blue") +
+    geom_line(aes(x = Idx, y = raw_pve_cum, group = 1), 
+              color = "blue", linetype = "dashed") +
+    scale_y_continuous(limits = c(0, 1),
+                       breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                       labels = scales::percent) +
+    labs(y = "Variance Explained (%)",
+         x = "Principal Component",
+         title = "Fig 5-2. Principal Component Analysis - RAMAN",
+         subtitle = "Raw spectra"),
+  RAMAN_pve_var %>% 
+    ggplot() +
+    geom_col(aes(x = Idx, y = SG_pve)) +
+    geom_point(aes(x = Idx, y = SG_pve_cum, group = 1),
+               size = 2, color = "blue") +
+    geom_line(aes(x = Idx, y = SG_pve_cum, group = 1), 
+              color = "blue", linetype = "dashed") +
+    scale_y_continuous(limits = c(0, 1),
+      breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1),
+                       labels = scales::percent) +
+    labs(y = "Variance Explained (%)",
+         x = "Principal Components",
+         title = "",
+         subtitle = "Savitzky-Golay smoothed 2nd derivative"))
+, nrow = 2)
+
+```
+
+
+### PCR 
+
+Principal component regression has a similar approach to principal component analysis. It has one more step before linear regression. As the first step, we conduct the principal component analysis to find the combination of maximizing its variance. Once we figure out what number of selections appropriately explain, we apply it to linear regression. 
+The basic approach for determining the number of components is following the minimize adjusted CV point. We could not find other studies on if there exists the gold standard on the number of PCs.
+The minimized Adjusted Cross-Validation marked 23 in `PCR-NIR`, 78 in `PCR-NIR SG`, 13 in `PCR-RAMAN`, and 86 in `PCR-RAMAN SG`, as shown in Fig 7. It tends to choose a large number of components when the data is filtered.
+
+#### NIR 
+
+```{r PCR_NIR}
+set.seed(1216)
+pcr_NIR <- pls::pcr(omega3~ NIR,# ncomp = 25,
+                    scale = TRUE, center = TRUE,
+                    data = nir_tr, validation = "CV",
+                    jackknife = TRUE)
+# summary(pcr_NIR)
+# plot(pls::RMSEP(pcr_NIR), legendpos = "topright")
+# which.min(RMSEP(pcr_NIR)$val[1,1,]) # 23
+plot(pcr_NIR, ncomp = 23, asp = 1, line = TRUE,
+     xlab = "Omega3 measured", ylab = "Omega3 predicted",
+     main = "Fig 6-1. PCR-NIR, Validation plot using 23 comps")
+# plot(pcr_NIR, "loadings", comps = 1:3, legendpos = "topleft",labels = "numbers", xlab = "nm",ylim=c(-0.10,0.10))
+# pcr_NIR_pred <- predict(pcr_NIR, nir_te, ncomp = 23)
+# pls::jack.test(pcr_NIR, 23)
+# mean((pcr_NIR_pred - nir_te$omega3)^2)
+# plot(scale(pcr_NIR$residuals[,,23]),main="Residual")
+
+```
+
+```{r PCR_NIRSG}
+set.seed(1218)
+pcr_NIRSG <- pls::pcr(omega3~ NIRSG,# ncomp = 25,
+                    scale = TRUE, center = TRUE,
+                    data = nir_tr, validation = "CV",
+                    jackknife = TRUE)
+# summary(pcr_NIRSG)
+# plot(pls::RMSEP(pcr_NIRSG), legendpos = "topright")
+# which.min(RMSEP(pcr_NIRSG)$val[1,1,]) # 16
+# plot(pcr_NIRSG, "loadings", comps = 1:3, legendpos = "topleft",labels = "numbers", xlab = "nm",ylim=c(-0.10,0.10))
+plot(pcr_NIRSG, ncomp = 78, asp = 1, line = TRUE,
+     xlab = "Omega3 measured", ylab = "Omega3 predicted",
+     main = "Fig 6-2. PCR-NIRSG, Validation plot using 78 comps")
+# pcr_NIRSG_pred <- predict(pcr_NIRSG, nir_te, ncomp = 16)
+# pls::jack.test(pcr_NIR, 23)
+# mean((pcr_NIRSG_pred - nir_te$omega3)^2)
+# plot(scale(pcr_NIRSG$residuals[,,11]),main="Residual")
+
+```
+
+#### RAMAN 
+
+```{r PCR_RAMAN}
+
+set.seed(1239)
+pcr_RAMAN <- pls::pcr(omega3~ RAMAN,# ncomp = 25,
+                    scale = TRUE, center = TRUE,
+                    data = raman_tr, validation = "CV",
+                    jackknife = TRUE)
+# plot(pls::RMSEP(pcr_RAMAN), legendpos = "topright")
+# which.min(RMSEP(pcr_RAMAN)$val[1,1,]) # 12
+plot(pcr_RAMAN, ncomp = 13, asp = 1, line = TRUE,
+     xlab = "Omega3 measured", ylab = "Omega3 predicted",
+     main = "Fig 6-3. PCR-RAMAN, Validation plot using 13 comps")
+# plot(scale(pcr_RAMAN$residuals[,,12]),main="Residual")
+```
+
+```{r PCR_RAMANSG}
+
+set.seed(1255)
+pcr_RAMANSG <- pls::pcr(omega3~ RAMANSG,# ncomp = 25,
+                    scale = TRUE, center = TRUE,
+                    data = raman_tr, validation = "CV",
+                    jackknife = TRUE)
+# plot(pls::RMSEP(pcr_RAMANSG), legendpos = "topright")
+# which.min(RMSEP(pcr_RAMANSG)$val[1,1,]) # 21
+plot(pcr_RAMANSG, ncomp = 86, asp = 1, line = TRUE,
+     xlab = "Omega3 measured", ylab = "Omega3 predicted",
+     main = "Fig 6-4. PCR-RAMANSG, Validation plot using 86 comps")
+# plot(scale(pcr_RAMANSG$residuals[,,21]),main="Residual")
+
+```
+
+#### summary 
+
+```{r NirRMSEP_plots}
+par(mfrow = c(2, 2))
+
+# PCR_NIR
+pls::validationplot(pcr_NIR, "RMSEP", "all", nir_te,
+                    legendpos = "topright", 
+                    main = "Fig 7. Cross-Validation: PCR - NIR", 
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pcr_NIR, "all", nir_te)$val[3,1,])[[1]] , col = "red")
+
+# PCR_NIRSG
+pls::validationplot(pcr_NIRSG, "RMSEP", "all", nir_te, 
+                    main = "PCR - NIR SG",
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pcr_NIRSG, "all", nir_te)$val[3,1,])[[1]] , col = "red")
+
+# PCR_RAMAN
+pls::validationplot(pcr_RAMAN, "RMSEP", "all", raman_te, 
+                    main = "PCR - RAMAN",
+                    # xlab = "", 
+                    ylab= "RMSE")
+abline(v =which.min(RMSEP(pcr_RAMAN, "all", raman_te)$val[3,1,])[[1]], col = "red")
+
+# PCR_RAMAN SG
+pls::validationplot(pcr_RAMANSG, "RMSEP", "all", raman_te, 
+                    main = "PCR - RAMAN SG", 
+                    # xlab = "", 
+                    ylab= "RMSE")
+abline(v =which.min(RMSEP(pcr_RAMANSG, "all", raman_te)$val[3,1,])[[1]], col = "red")
+
+
+par(mfrow = c(1, 1))
+```
+
+```{r PCR_NIR_plots, message=FALSE}
+sum_NIR_tr <- nir_tr %>% 
+  mutate(
+    pcr_NIRtr_pred = predict(pcr_NIR, nir_tr, ncomp = 23),
+    pcr_NIRSGtr_pred = predict(pcr_NIRSG, nir_tr, ncomp = 78))
+sum_NIR_te <- nir_te %>% 
+  mutate(
+    pcr_NIRte_pred = predict(pcr_NIR, nir_te, ncomp = 23),
+    pcr_NIRSGte_pred = predict(pcr_NIRSG, nir_te, ncomp = 78))
+
+pcr_1 <- ggpubr::ggscatter(sum_NIR_tr, 
+                  x = "omega3", y = "pcr_NIRtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "Fig 8. PCR-NIR", 
+       subtitle = "NIR Train",
+       y = "Predicted")
+
+pcr_2 <- ggpubr::ggscatter(sum_NIR_tr, 
+                  x = "omega3", y = "pcr_NIRSGtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", 
+       subtitle = "NIR SG Train",
+       y = "Predicted")
+
+pcr_3 <- ggpubr::ggscatter(sum_NIR_te, 
+                  x = "omega3", y = "pcr_NIRte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", 
+       subtitle = "NIR Test",
+       y = "Predicted")
+
+
+pcr_4 <- ggpubr::ggscatter(sum_NIR_te, 
+                  x = "omega3", y = "pcr_NIRSGte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", 
+       subtitle = "NIR SG Test",
+       y = "Predicted")
+
+ggpubr::ggarrange(
+  pcr_1, pcr_2, pcr_3, pcr_4,
+  ncol = 2, nrow = 2)
+```
+
+```{r PCR_RAMAN_plots, message=FALSE}
+sum_RAMAN_tr <- raman_tr %>% 
+  mutate(
+    pcr_RAMANtr_pred = predict(pcr_RAMAN, raman_tr, ncomp = 13),
+    pcr_RAMANSGtr_pred = predict(pcr_RAMANSG, raman_tr, ncomp = 86))
+sum_RAMAN_te <- raman_te %>% 
+  mutate(
+    pcr_RAMANte_pred = predict(pcr_RAMAN, raman_te, ncomp = 13),
+    pcr_RAMANSGte_pred = predict(pcr_RAMANSG, raman_te, ncomp = 86))
+
+pcr_1 <- ggpubr::ggscatter(sum_RAMAN_tr, 
+                  x = "omega3", y = "pcr_RAMANtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "Fig 9. PCR-RAMAN",
+       subtitle = "RAMAN Train", y = "Predicted")
+
+pcr_2 <- ggpubr::ggscatter(sum_RAMAN_tr, 
+                  x = "omega3", y = "pcr_RAMANSGtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "Predicted VS Measured", 
+       subtitle = "RAMAN SG Train", y = "Predicted")
+
+pcr_3 <- ggpubr::ggscatter(sum_RAMAN_te, 
+                  x = "omega3", y = "pcr_RAMANte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", 
+       subtitle = "RAMAN Test", y = "Predicted")
+
+pcr_4 <- ggpubr::ggscatter(sum_RAMAN_te, 
+                  x = "omega3", y = "pcr_RAMANSGte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", 
+       subtitle = "RAMAN SG Test", y = "Predicted")
+
+ggpubr::ggarrange(
+  pcr_1, pcr_2, pcr_3, pcr_4,
+  ncol = 2, nrow = 2)
+```
+
+
+### PLS 
+
+Partial Least Square Regression has a similar approach with principal component regression in terms of looking for a combination of components. One distinct difference is it considers the relationship between the Omega3 and spectra. As the same method, the minimized Adjusted Cross-Validation marked 13 in `PCR-Nir`, 6 in `PCR-NIR SG`, 6 in `PCR-RAMAN`, and 7 in `PCR-RAMAN SG`, as shown in Fig 11. One noticeable point is the Partial Least Square Regression needs fewer components than the Principal Component Regression.
+
+#### NIR 
+
+```{r PLS_NIR}
+
+set.seed(106)
+pls_NIR <- pls::plsr(omega3~ NIR, ncomp = 90,
+                     scale = TRUE, center = TRUE,
+                     data = nir_tr, validation = "CV")
+# plot(RMSEP(pls_NIR), legendpos = "topright")
+# which.min(RMSEP(pls_NIR)$val[1,1,]) # 13
+plot(pls_NIR, ncomp = 13, asp = 1, line = TRUE,
+     main = "Fig 10-1. PLS-NIR; Validation plot using 13 comps")
+# plot(scale(pls_NIR$residuals[,,12]),main="Residual")
+```
+
+```{r PLS_NIRSG}
+set.seed(111)
+pls_NIRSG <- pls::plsr(omega3~ NIRSG, ncomp = 90,
+                     scale = TRUE, center = TRUE,
+                     data = nir_tr, validation = "CV")
+# plot(RMSEP(pls_NIRSG), legendpos = "topright")
+# which.min(RMSEP(pls_NIRSG)$val[1,1,]) 
+plot(pls_NIR, ncomp = 6, asp = 1, line = TRUE,
+     main = "Fig 10-2. PLS-NIR SG; Validation plot using 6 comps")
+# plot(scale(pls_NIR$residuals[,,5]),main="Residual")
+```
+
+
+#### RAMAN 
+
+```{r PLS_RAMAN}
+set.seed(121)
+pls_RAMAN <- pls::plsr(omega3~ RAMAN, ncomp = 90,
+                     scale = TRUE, center = TRUE,
+                     data = raman_tr, validation = "CV")
+# plot(RMSEP(pls_RAMAN), legendpos = "topright")
+# which.min(RMSEP(pls_NIR)$val[1,1,]) # 12
+plot(pls_RAMAN, ncomp = 6, asp = 1, line = TRUE,
+     main = "Fig 10-3. PLS-RAMAN; Validation plot using 6 comps")
+# plot(scale(pls_RAMAN$residuals[,,12]),main="Residual")
+```
+
+```{r PLS_RAMANSG}
+set.seed(124)
+pls_RAMANSG <- pls::plsr(omega3~ RAMANSG, ncomp = 90,
+                     scale = TRUE, center = TRUE,
+                     data = raman_tr, validation = "CV")
+# plot(RMSEP(pls_RAMANSG), legendpos = "topright")
+# which.min(RMSEP(pls_RAMANSG)$val[1,1,]) # 6
+plot(pls_RAMANSG, ncomp = 7, asp = 1, line = TRUE,
+     main = "Fig 10-4. PLS-NIR SG; Validation plot using 7 comps")
+# plot(scale(pls_RAMAN$residuals[,,6]),main="Residual")
+```
+
+#### summary 
+
+```{r RamanRMSEP_plots}
+par(mfrow = c(2, 2))
+
+# PLS_NIR
+pls::validationplot(pls_NIR, "RMSEP", "all", nir_te,
+                    legendpos = "topright", 
+                    main = "Fig 11. Cross-Validation; PLSR - NIR", 
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pls_NIR, "all", nir_te)$val[3,1,])[[1]] , col = "red")
+
+# PLS_NIRSG
+pls::validationplot(pls_NIRSG, "RMSEP", "all", nir_te, 
+                    main = "PLSR - NIR SG",
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pls_NIRSG, "all", nir_te)$val[3,1,])[[1]] , col = "red")
+
+# PLS_RAMAN
+pls::validationplot(pls_RAMAN, "RMSEP", "all", raman_te, 
+                    main = "PLSR - RAMAN",
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pls_RAMAN, "all", raman_te)$val[3,1,])[[1]], col = "red")
+
+# PLS_RAMAN SG
+pls::validationplot(pls_RAMANSG, "RMSEP", "all", raman_te, 
+                    main = "PLSR - RAMAN SG", 
+                    xlab = "", ylab= "RMSE")
+abline(v =which.min(RMSEP(pls_RAMANSG, "all", raman_te)$val[3,1,])[[1]], col = "red")
+
+
+par(mfrow = c(1, 1))
+```
+
+```{r PLS_NIR_plots, message=FALSE}
+sum_NIR_tr <- sum_NIR_tr %>% 
+  mutate(
+    pls_NIRtr_pred = predict(pls_NIR, nir_tr, ncomp = 13),
+    pls_NIRSGtr_pred = predict(pls_NIRSG, nir_tr, ncomp = 6))
+sum_NIR_te <- sum_NIR_te %>% 
+  mutate(
+    pls_NIRte_pred = predict(pls_NIR, nir_te, ncomp = 13),
+    pls_NIRSGte_pred = predict(pls_NIRSG, nir_te, ncomp = 6))
+
+pcr_1 <- ggpubr::ggscatter(sum_NIR_tr, 
+                  x = "omega3", y = "pls_NIRtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "Fig 12. PLS-NIR",
+       subtitle = "NIR Train",
+       y = "Predicted")
+
+pcr_2 <- ggpubr::ggscatter(sum_NIR_tr, 
+                  x = "omega3", y = "pls_NIRSGtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "NIR SG Train" ,
+       y = "Predicted")
+
+pcr_3 <- ggpubr::ggscatter(sum_NIR_te, 
+                  x = "omega3", y = "pls_NIRte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "NIR Test",
+       y = "Predicted")
+
+
+pcr_4 <- ggpubr::ggscatter(sum_NIR_te, 
+                  x = "omega3", y = "pls_NIRSGte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "NIR SG Test",
+       y = "Predicted")
+
+ggpubr::ggarrange(
+  pcr_1, pcr_2, pcr_3, pcr_4,
+  ncol = 2, nrow = 2)
+```
+
+```{r PLS_RAMAN_plots, message=FALSE}
+sum_RAMAN_tr <- sum_RAMAN_tr %>% 
+  mutate(
+    pls_RAMANtr_pred = predict(pls_RAMAN, raman_tr, ncomp = 6),
+    pls_RAMANSGtr_pred = predict(pls_RAMANSG, raman_tr, ncomp = 7))
+sum_RAMAN_te <- sum_RAMAN_te %>% 
+  mutate(
+    pls_RAMANte_pred = predict(pls_RAMAN, raman_te, ncomp = 6),
+    pls_RAMANSGte_pred = predict(pls_RAMANSG, raman_te, ncomp = 7))
+
+pcr_1 <- ggpubr::ggscatter(sum_RAMAN_tr, 
+                  x = "omega3", y = "pls_RAMANtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "Fig 13. PLS-RAMAN", 
+       subtitle = "RAMAN Train ", y = "Predicted")
+
+pcr_2 <- ggpubr::ggscatter(sum_RAMAN_tr, 
+                  x = "omega3", y = "pls_RAMANSGtr_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "RAMAN SG Train ", 
+       y = "Predicted")
+
+pcr_3 <- ggpubr::ggscatter(sum_RAMAN_te, 
+                  x = "omega3", y = "pls_RAMANte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "RAMAN Test", 
+       y = "Predicted")
+
+pcr_4 <- ggpubr::ggscatter(sum_RAMAN_te, 
+                  x = "omega3", y = "pls_RAMANSGte_pred", 
+                  add = "reg.line") +
+  stat_cor(label.y = 20, 
+           aes(label = paste(..rr.label.., ..p.label.., sep = "~`,`~")))  +
+  stat_regline_equation(label.y = 19.5) +
+  labs(title = "", subtitle = "RAMAN SG Test",
+       y = "Predicted")
+
+ggpubr::ggarrange(
+  pcr_1, pcr_2, pcr_3, pcr_4,
+  ncol = 2, nrow = 2)
+rm(pcr_1, pcr_2, pcr_3, pcr_4)
+```
+
+
+## Results – comparisons
+
+
+```{r RMSE_summary}
+
+knitr::kable(
+  data.frame(
+  model = c("PCR-NIR", "PCR-NIRSG", "PCR-RAMAN", "PCR-RAMANSG", "PLSR-NIR", "PLSR-NIRSG", "PLSR-RAMAN", "PLSR_RAMANSG"),
+  # RMSE = sqrt(mean(actual - predicted)^2)
+  RMSE = c(
+    sqrt(mean(sum_NIR_te$omega3 - sum_NIR_te$pcr_NIRte_pred)^2),
+sqrt(mean(sum_NIR_te$omega3 - sum_NIR_te$pcr_NIRSGte_pred)^2),
+sqrt(mean(sum_NIR_te$omega3 - sum_NIR_te$pls_NIRte_pred)^2),
+sqrt(mean(sum_NIR_te$omega3 - sum_NIR_te$pls_NIRSGte_pred)^2),
+sqrt(mean(sum_RAMAN_te$omega3 - sum_RAMAN_te$pcr_RAMANte_pred)^2),
+sqrt(mean(sum_RAMAN_te$omega3 - sum_RAMAN_te$pcr_RAMANSGte_pred)^2),
+sqrt(mean(sum_RAMAN_te$omega3 - sum_RAMAN_te$pls_RAMANte_pred)^2),
+sqrt(mean(sum_RAMAN_te$omega3 - sum_RAMAN_te$pls_RAMANSGte_pred)^2)
+  )
+), caption = "Table 4. RMSE based on the model")
+
+```
+
+
+```{r CCC_summary}
+knitr::kable(
+cbind(model = c("PCR-NIR", "PCR-NIRSG", "PCR-RAMAN", "PCR-RAMANSG", "PLSR-NIR", "PLSR-NIRSG", "PLSR-RAMAN", "PLSR_RAMANSG"),
+      rbind(
+# PCR + NIR/NIR_SG filter
+epiR::epi.ccc(x = as.vector(sum_NIR_te$omega3), 
+              y = as.vector(sum_NIR_te$pcr_NIRte_pred))$rho.c ,
+epiR::epi.ccc(x = as.vector(sum_NIR_te$omega3), 
+              y = as.vector(sum_NIR_te$pcr_NIRSGte_pred))$rho.c ,
+# PCR + RAMAN/RAMAN_SG filter
+epiR::epi.ccc(x = as.vector(sum_RAMAN_te$omega3), 
+              y = as.vector(sum_RAMAN_te$pcr_RAMANte_pred))$rho.c ,
+epiR::epi.ccc(x = as.vector(sum_RAMAN_te$omega3), 
+              y = as.vector(sum_RAMAN_te$pcr_RAMANSGte_pred))$rho.c ,
+
+# PLS + NIR/NIR_SG filter
+epiR::epi.ccc(x = as.vector(sum_NIR_te$omega3), 
+              y = as.vector(sum_NIR_te$pls_NIRte_pred))$rho.c ,
+epiR::epi.ccc(x = as.vector(sum_NIR_te$omega3), 
+              y = as.vector(sum_NIR_te$pls_NIRSGte_pred))$rho.c ,
+
+# PLS + RAMAN/RAMAN_SG filter
+epiR::epi.ccc(x = as.vector(sum_RAMAN_te$omega3), 
+              y = as.vector(sum_RAMAN_te$pls_RAMANte_pred))$rho.c ,
+epiR::epi.ccc(x = as.vector(sum_NIR_te$omega3), 
+              y = as.vector(sum_RAMAN_te$pls_RAMANSGte_pred))$rho.c 
+)), 
+caption = "Table 5. Concordance Correlation Coefficient")
+```
+
+
+|Table 6. Model summary of test data| | | | |  |
+|-------:|----:|-------:|---------:|-----:|---------:|
+|Methods| # of Comps | formula | RMSE | $R^2$ | Estimated CCC |
+|-------|----|-------|---------|-----|---------|
+|PCR-NIR    |23 |$y = 7 + 0.62x$  | 0.119 |0.63 |0.75 |
+|PCR-NIRSG  |78 |$y = 11 + 0.4x$  | 0.139 |0.28 |0.49 |
+|PCR-RAMAN  |13 |$y = 4.5 + 0.75x$| 0.116 |0.79 |0.86 |
+|PCR-RAMANSG|86 |$y = 8.6 + 0.53$ | 0.133 |0.61 |0.71 |
+|-------:|----:|-------:|---------:|-----:|----------:|
+|PLS-NIR    |13|$y = 5.9 + 0.68x$ | 0.112 |0.66 |0.79 |
+|PLS-NIRSG  |6 |$y = 11 + 0.42x$  | 0.141 |0.29 |0.51 |
+|PLS-RAMAN  |6 |$y = 4.4 + 0.76x$ | 0.086 |0.77 |0.86 |
+|PLS-RAMANSG|7 |$y = 7.5 + 0.59x$ | 0.136 |0.61 |0.74 |
+
+
+## Discussion & Conclusion
+
+We apply a multivariate statistical methodology to compare predicted Omega3 using different spectra. It shows different results by the methods and validation measurements. 
+
+In Raman spectra prediction, it shows the highest RMSE value(0.77-0.79) and CCC(0.86) regardless of principal component regression or partial least square regression. However, the partial least square regression has more efficiency to predict with the lower number of components within the same condition. Furthermore, Raman spectra in partial least square regression have the lowest RMSE value which indicates that accuracy.
+
+The number of components to be selected varies depending on which method and spectra are applied. The R2 is slightly different between the training and the test data set. If there is a large gap between the train and test data, there may occur an overfitting or underfitting problem. These problems lead to less credibility of the model. Since there is no golden standard for determining the number of components, we believe there could be further development that suggests new methods.
+
+In conclusion, Raman spectra with a partial least square regression could be used to predict the Omega3 fatty acids of salmon. In this paper, we only focused on predicting Omega3 fatty acids using spectra. It could be a further developed model with an effort of searching for the best balance among Omega3, Omega6, and pigment.
 
 ## References
+
+- [Lecture Note Week39](https://nmbu.instructure.com/courses/7475/files/1370004?module_item_id=148118)
+- [PLS packages in R](https://cran.r-project.org/web/packages/pls/vignettes/pls-manual.pdf)
+- [Process Improvement Using Data, Chapter 6](https://learnche.org/pid/latent-variable-modelling/projection-to-latent-structures/advantages-of-projection-to-latent-structures)
+- [Hands-On Machine Learning with R, Chapter 4](https://bradleyboehmke.github.io/HOML/)
+- [spectroscopy review](https://epjtechniquesandinstrumentation.springeropen.com/articles/10.1140/epjti/s40485-015-0018-6)
+- [Determination of fatty acids and lipid classes in salmon oil by near infrared spectroscopy](https://www.sciencedirect.com/science/article/pii/S0308814617311408)
+- [Investigation of NIR spectra pre-processing methods combined with multivariate regression for determination of moisture in powdered industrial egg](https://www.redalyc.org/journal/3032/303258327015/html/)
+
